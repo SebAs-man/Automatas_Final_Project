@@ -1,6 +1,6 @@
 import random
 import pygame
-from Cell import Cell
+import numpy as np
 
 '''
 Esta clase representa el automata celular
@@ -9,49 +9,55 @@ class AC:
     # Definir el numero de las celdas del automata celular
     __nX = 95
     __nY = 93
-    # Definir el vector de celdas y su respectivo respaldo
-    __cells = []
-    __next = []
 
-    # Definir los colores de las celulas
-    __BLUE = (0, 0, 255)
-    __GREEN = (0, 255, 0)
-    __RED = (255, 0, 0)
+    # Definir los posibles de las celulas y su probabilidad de nacimiento (rojo, verde y azul)
+    __COLORS = {(255, 0, 0): 0.4, (0, 255, 0): 0.4, (0, 0, 255): 0.2}
 
-    # Definir las probabilidades de simbiosis
-    __probB = 0.33333
-    __probG = 0.33333
-    __probR = 0.33333
+    # Definir las poblaciones iniciales del automata
+    __MIN = 500
+    __MAX = 1500
 
-    # Definir las iteraciones del automata celular
-    __iterations = 0
+    # Difinir las reglas del juego de todas las celulas
+    # (n > 0) se atraen, (n < 0) se repelen y (n = 0) son neutros
+    __Fmax = ((0.05, -0.8, 1.47), # Rojo
+              (0.47, 0.07, -1.66), # Verde
+              (-1.74, 0.14, 0.05)) # Azul
+    # Definir la longitud maxima en el que se aplica la fuerza
+    __Rmax = (5, 5, 5)
+    # Definir la longitud minima en el que se aplica la fuerza inversa
+    __Rmin = (2, 2, 2)
+    # Definir las contantes universales
+    __Ke = 9
+    __N = -0.4
+    __FRICTION_FACTOR = 1
+    __FRICTION_RATE = 0.01
 
     '''
     Metodo constructor del automata celular
     '''
     def __init__(self):
-        # Crear las celdas del automata celular
-        for row in range(self.__nY):
-            row = []
-            for col in range(self.__nX):
-                row.append(self.Celda())
-            self.__cells.append(row)
-        # Crear aleatoriamente celulas en las celdas
-        pos_cells = set()
-        poblation_initial = random.randint(5000, 7000)
-        div = poblation_initial // 3
-        for i in range(poblation_initial):
+        # Definir las iteraciones del automata celular
+        self.__iterations = 0
+        self.__cells = np.zeros((self.__nY, self.__nX), dtype=tuple)
+        self.__aux = np.zeros((self.__nY, self.__nX), dtype=tuple)
+
+        # Crear aleatoriamente los colores en las celdas
+        poblation_initial = random.randint(self.__MIN, self.__MAX)
+        colors = list(self.__COLORS.keys())
+        prob = list(self.__COLORS.values())
+        visit = set()
+
+        # Poblar el automata
+        for _ in range(poblation_initial):
+            # Evitar que se repitan algunas celdas ya pintadas
             while True:
                 x = random.randint(0, self.__nX-1)
                 y = random.randint(0, self.__nY-1)
-                if (x, y) not in pos_cells:
-                    pos_cells.add((x, y))
-                    if i < div:
-                        self.__cells[y][x].celula = Cell(self.__probR, self.__RED)
-                    elif div <= i < 2*div:
-                        self.__cells[y][x].celula = Cell(self.__probG, self.__GREEN)
-                    else:
-                        self.__cells[y][x].celula = Cell(self.__probB, self.__BLUE)
+                # Se pinta la celda:
+                if (x, y) not in visit:
+                    visit.add((x, y))
+                    current_color = random.choices(colors, prob)[0]
+                    self.__cells[y][x] = current_color
                     break
 
     '''
@@ -60,32 +66,43 @@ class AC:
     :param y: coordenada y del espacio
     :return: valor de la celda
     '''
-    def read(self, x: int, y: int):
-        # verificar si se refleja en las coordenadas x
-        if x >= self.__nX:
-            x -= self.__nX
-        elif x < 0:
-            x += self.__nX
-        # verificar si se refleja en las coordenadas y
-        if y >= self.__nY:
-            y -= self.__nY
-        elif y < 0:
-            y += self.__nY
+    def read(self, y: int, x: int) -> tuple[int, int, int]:
+        # Aplicar reflexión en las coordenadas x e y
+        x %= self.__nX
+        y %= self.__nY
 
-        return self.__cells[y][x]
+        return self.__cells[y, x]
+
+    '''
+    Metodo para devolver una seccion de celdas dadas sus coordenadas en el espacio y su tamaño
+    :param x_init: coordenada inicial x del espacio
+    :param y_init: coordenada inicial y del espacio
+    :param x_final: coordenada final x del espacio
+    :param y_final: coordenada final y del espacio
+    '''
+    def read_all(self, y: int, x: int, dist: int) -> np.ndarray:
+        rows_neighborn = (y + np.arange(-dist, dist + 1)) % self.__nY
+        cols_neighborn = (x + np.arange(-dist, dist + 1)) % self.__nX
+        # Generar todas las combinaciones posibles de las coordenadas de los vecinos
+        idx_rows, idx_cols = np.ix_(rows_neighborn, cols_neighborn)
+
+        # Obtener todas las celdas que componen a esa seccion
+        neighborns = self.__cells[idx_rows, idx_cols]
+
+        return neighborns
 
     '''
     Metodo para obtener las celulas vivas del automata
     :return: un diccionario con el numero de celulas de cada tipo
     '''
     def lives(self) -> dict:
-        liveCells = {self.__GREEN: 0, self.__BLUE: 0, self.__RED: 0}
+        colors = list(self.__COLORS)
+        liveCells = {color: 0 for color in colors}
         for y in range(self.__nY):
             for x in range(self.__nX):
-                current = self.read(x, y)
-                if current.enabled:
-                    color = current.celula.color
-                    liveCells[color] += 1
+                current = self.read(y, x)
+                if current != 0:
+                    liveCells[current] += 1
         return liveCells
 
     '''
@@ -93,74 +110,123 @@ class AC:
     '''
     def update(self):
         self.__iterations += 1
+        if self.__FRICTION_FACTOR > 0.005:
+            self.__FRICTION_FACTOR -= self.__FRICTION_RATE
+        colors = list(self.__COLORS.keys())
+        prob = list(self.__COLORS.values())
+        # Crear la pila para aquellas celulas que no encuentren destino
+        stack = []
         for y in range(self.__nY):
-            next_row = []
             for x in range(self.__nX):
-                # Celdas vecinas
-                near = [
-                    self.read(x-1, y+1),
-                    self.read(x, y+1),
-                    self.read(x+1, y+1),
-                    self.read(x-1, y),
-                    self.read(x+1, y),
-                    self.read(x-1, y-1),
-                    self.read(x, y-1),
-                    self.read(x+1, y-1)
-                ]
-                # Contar las celulas vecinas vivas
-                colors = {self.__GREEN: 0, self.__RED: 0, self.__BLUE: 0}
-                for neighbor in near:
-                    if neighbor.enabled:
-                        color_neighbor = neighbor.celula.color
-                        colors[color_neighbor] += 1
+                current = self.read(y, x)
+                # Si la celda está apagada
+                if current == 0:
+                    current_aux = self.__aux[y, x]
+                    if current_aux == 0:  # Si la celda actual en el automata auxiliar está desocupada
+                        neighbors = self.read_all(y, x, 1)[0].flatten()
+                        neighbors_count = np.sum(neighbors != 0)
+                        if neighbors_count == 3:
+                            # Elegir un color aleatorio para la nueva célula
+                            new_color = random.choices(colors, prob)[0]
+                            if random.random() < self.__COLORS[new_color]:
+                                self.__aux[y, x] = new_color
+                    continue
 
-                current = self.read(x, y)
-                # Muere una celula
-                if current.enabled:
-                    current_color = current.celula.color
-                    count_other = 0
-                    for color, count in colors.items():
-                        if color != current_color:
-                            count_other += count
-                    if colors[current_color] != 2 and colors[current_color] != 3:
-                        current = self.Celda()
-                # Nace una celula
-                else:
-                    prob = [self.__probG, self.__probR, self.__probB]
-                    count_max = 0
-                    key_max = None
-                    pos_max = -1
-                    for i, (color, count) in enumerate(colors.items()):
-                        if count * prob[i] >= count_max:
-                            pos_max = i
-                            count_max = count * prob[i]
-                            key_max = color
-                    if sum(colors.values()) == 3:
-                        current = self.Celda()
-                        current.celula = Cell(prob[pos_max], key_max)
+                current_index = colors.index(current)
+                r_min_current = self.__Rmin[current_index]
+                r_max_current = self.__Rmax[current_index]
 
-                # Guardar los cambios en el automata de respaldo
-                next_row.append(current)
-            self.__next.append(next_row)
-        # Agregar los cambios realizados al automata principal
-        self.__cells = self.__next
-        self.__next = []
+                # vector fuerza, cada posicion es la distancia (x, y) de desplazamiento
+                v_fuerza = [0, 0]
+
+                # obtener por todas las celulas vecinas que le afectan
+                near = self.read_all(y, x, r_max_current)
+
+                # Recorrer la matriz de celdas vecinas
+                for i, _ in enumerate(near):
+                    for j, neighbor_color in enumerate(_):
+                        # Evitar pasar por la misma celda actual
+                        if (j == r_max_current and i == r_max_current) or neighbor_color == 0:
+                            continue
+
+                        # Obtener las distancias de la celda vecina hasta la celda actual
+                        r_y = i - r_max_current
+                        r_x = r_max_current - j
+
+                        # Verificar que tan cerca esta celda vecina a la actual
+                        const = self.__N if ((-r_min_current <= r_x <= r_max_current) and
+                                             -r_min_current <= r_y <= r_min_current) else 1
+
+                        neighbor_index = colors.index(neighbor_color)
+                        # Almacenar las cargas de las celdas segun su distancia y color
+                        q1 = const * self.__Fmax[neighbor_index][current_index]
+                        q2 = const * self.__Fmax[current_index][neighbor_index]
+
+                        # Operar la ecuacion de Coulomb
+                        v_ = self.coulomb(q1, q2, r_y, r_x)
+                        v_fuerza[0] += v_[0]
+                        v_fuerza[1] += v_[1]
+
+                # Obtener la proxima celda y actual en el automata auxiliar.
+                pos_x = int(x + np.round(v_fuerza[0])) % self.__nX
+                pos_y = int(y + np.round(v_fuerza[1])) % self.__nY
+                next_aux = self.__aux[pos_y, pos_x]
+                current_aux = self.__aux[y, x]
+
+                # Mover la celda
+                if next_aux == 0: # Si la celda siguiente está desocupada
+                    self.__aux[pos_y, pos_x] = current
+                elif current_aux == 0: # Si la celda actual está desocupada
+                    self.__aux[y, x] = current
+                else: # Si ambas celdas están ocupadas
+                    stack.append((y, x, pos_y, pos_x, current))
+
+        # Buscar un lugar cercano a cada una de las celulas en espera
+        for orig_y, orig_x, new_y, new_x, cell in stack:
+            neighbors = self.read_all(new_y, new_x, 1)[0].flatten()
+            neighbors_count = np.sum(neighbors != 0)
+            # La celula sobrevive si se cumplen las reglas del juego de la vida, en otro caso no
+            if neighbors_count == 3 or neighbors_count == 2:
+                for dy in range(-1, 2):
+                    for dx in range(-1, 2):
+                        ny, nx = (new_y + dy) % self.__nY, (new_y + dx) % self.__nX
+                        if self.__aux[ny, nx] == 0:
+                            self.__aux[ny, nx] = cell
+                            break
+
+        # Actualizar el automata principal
+        self.__cells = self.__aux
+        self.__aux = np.zeros((self.__nY, self.__nX), dtype=tuple)
+
+    '''
+    Metodo que realiza el calculo de la ley de coulomb
+    :param q1: carga de la particula 1
+    :param q2: carga de la particula 2
+    :param r_x: vector x coordenada
+    :param r_y: vector y coordenada
+    :return: vector de fuerza electrica de las particulas
+    '''
+    def coulomb(self, q1, q2, r_y, r_x) -> np.array:
+        norm_2 = r_x**2 + r_y**2
+        v_fuerza = ((self.__Ke * ((q1 * q2) / norm_2)) * (r_x/(norm_2**0.5)),
+                    (self.__Ke * ((q1 * q2) / norm_2)) * (r_y/(norm_2**0.5)))
+        # Aplicar el factor de fricción a la fuerza calculada
+        v_fuerza = (v_fuerza[0]*self.__FRICTION_FACTOR, v_fuerza[1] * self.__FRICTION_FACTOR)
+        return v_fuerza
 
     '''
     Metodo de proyeccion del espacio con las celdas del automata celular
     :param context: representa el contexto gráfico de la ventana
     '''
-    def draw(self, context:pygame.Surface):
+    def draw(self, context : pygame.Surface):
         for y in range(self.__nY):
             for x in range(self.__nX):
-                current = self.read(x, y)
-                # Verificar si la celda esta activada
-                if current.enabled:
-                    color = current.celula.color
+                current = self.read(y, x)
+                if current != 0:
                     # Dibujar un rectangulo relleno del color de la celula
-                    pygame.draw.rect(context, color, (x * 10, y * 10, 10, 10))
+                    pygame.draw.rect(context, current, (x * 10, y * 10, 10, 10))
+                # Dibujar un recuadro sin relleno con bordes grises
                 else:
-                    # Dibujar un recuadro sin relleno con bordes grises
                     pygame.draw.lines(context, (64, 64, 64), True, (
                         (x * 10, y * 10),
                         ((x + 1) * 10, y * 10),
@@ -175,37 +241,3 @@ class AC:
     @property
     def iterations(self) -> int:
         return self.__iterations
-
-    '''
-    Esta clase interna representa una celda del automata celular
-    '''
-    class Celda:
-        '''
-        Metodo constructor de una celda que se encuentra en el automata celular
-        '''
-        def __init__(self):
-            self.__celula = None
-
-        '''
-        Metodo getter de la celula que se encuentra encima de la celda
-        :return: (None) si no hay nada o la celula ubicada en la celda
-        '''
-        @property
-        def celula(self):
-            return self.__celula
-
-        '''
-        Metodo getter del estado actual de la celda
-        :return: (True) si esta activada o (False) si no
-        '''
-        @property
-        def enabled(self) -> bool:
-            return self.__celula is not None
-
-        '''
-        Metodo setter para cambiar la celula que se encuentra sobre dicha celda
-        :param cell: define la celula que se pondra sobre la celda
-        '''
-        @celula.setter
-        def celula(self, cell: Cell):
-            self.__celula = cell

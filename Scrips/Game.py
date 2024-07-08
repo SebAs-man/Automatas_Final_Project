@@ -24,6 +24,9 @@ def main():
     screen = pygame.display.set_mode(__size)
     pygame.display.set_caption('Juego de la vida aumentado')
 
+    # Crear el reloj del juego
+    clock = pygame.time.Clock()
+
     # Estado inicial del juego
     start = False
 
@@ -134,9 +137,13 @@ def main():
 
         # Refresco de la ventana
         pygame.display.flip()
+        clock.tick(60)
 
 '''
 Ejecucion del juego de la vida aumentada
 '''
 if __name__ == "__main__":
     main()
+
+
+
